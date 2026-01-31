@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <inttypes.h>
+#include <wchar.h>
 
 // When PERFORMANCEAPI_ENABLED is defined to 0, all calls to the PerformanceAPI (either through macro or direct function calls) will be compiled out.
 #ifndef PERFORMANCEAPI_ENABLED
