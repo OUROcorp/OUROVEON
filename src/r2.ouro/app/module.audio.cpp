@@ -941,29 +941,47 @@ void AudioDeviceQuery::findSuitable( const config::Audio& audioConfig )
     outputParameters.channelCount              = 2;
     outputParameters.sampleFormat              = paFloat32;
 
+    PaHostApiInfo fallbackApiInfo;
+    fallbackApiInfo.name = "[unknown-api]";
+
     const PaDeviceInfo* paDeviceInfo;
     const PaHostApiInfo* paApiInfo;
     for ( auto paDi = 0; paDi < paDeviceCount; paDi++ )
     {
-        paDeviceInfo = Pa_GetDeviceInfo( paDi );
-        paApiInfo = Pa_GetHostApiInfo( paDeviceInfo->hostApi );
-
-        outputParameters.device                    = paDi;
-        outputParameters.suggestedLatency          = audioConfig.lowLatency ? paDeviceInfo->defaultLowOutputLatency :
-                                                                              paDeviceInfo->defaultHighOutputLatency;
-
-        if ( Pa_IsFormatSupported( nullptr, &outputParameters, audioConfig.sampleRate ) == paFormatIsSupported  )
+        try
         {
-            const auto paDeviceNameVerbose = fmt::format( FMTX( "[{:>22}] {}" ), paApiInfo->name, paDeviceInfo->name );
-
-            if ( uniqueDeviceNames.contains( paDeviceNameVerbose ) == false )
+            paDeviceInfo = Pa_GetDeviceInfo( paDi );
+            if ( paDeviceInfo == nullptr )
             {
-                uniqueDeviceNames.emplace( paDeviceNameVerbose );
-
-                m_deviceNames.emplace_back( std::move( paDeviceNameVerbose ) );
-                m_deviceLatencies.push_back( outputParameters.suggestedLatency );
-                m_devicePaIndex.push_back( paDi );
+                blog::error::core( "Pa_GetDeviceInfo failed #{}", paDi );
+                continue;
             }
+
+            paApiInfo = Pa_GetHostApiInfo( paDeviceInfo->hostApi );
+            if ( paApiInfo == nullptr )
+                paApiInfo = &fallbackApiInfo;
+
+            outputParameters.device = paDi;
+            outputParameters.suggestedLatency = audioConfig.lowLatency ? paDeviceInfo->defaultLowOutputLatency :
+                paDeviceInfo->defaultHighOutputLatency;
+
+            if ( Pa_IsFormatSupported( nullptr, &outputParameters, audioConfig.sampleRate ) == paFormatIsSupported )
+            {
+                const auto paDeviceNameVerbose = fmt::format( FMTX( "[{:>22}] {}" ), paApiInfo->name, paDeviceInfo->name );
+
+                if ( uniqueDeviceNames.contains( paDeviceNameVerbose ) == false )
+                {
+                    uniqueDeviceNames.emplace( paDeviceNameVerbose );
+
+                    m_deviceNames.emplace_back( std::move( paDeviceNameVerbose ) );
+                    m_deviceLatencies.push_back( outputParameters.suggestedLatency );
+                    m_devicePaIndex.push_back( paDi );
+                }
+            }
+        }
+        catch (...)
+        {
+            blog::error::core( "findSuitable device #{} threw exception", paDi );
         }
     }
 
@@ -982,31 +1000,49 @@ int32_t AudioDeviceQuery::generateStreamParametersFromDeviceConfig( const config
     if ( paDeviceCount <= 0 )
         return -1;
 
+    PaHostApiInfo fallbackApiInfo;
+    fallbackApiInfo.name = "[unknown-api]";
+
     const PaDeviceInfo* paDeviceInfo;
     const PaHostApiInfo* paApiInfo;
     for ( auto paDi = 0; paDi < paDeviceCount; paDi++ )
     {
-        paDeviceInfo = Pa_GetDeviceInfo( paDi );
-        paApiInfo = Pa_GetHostApiInfo( paDeviceInfo->hostApi );
-
-        const auto paDeviceNameVerbose = fmt::format( FMTX( "[{:>22}] {}" ), paApiInfo->name, paDeviceInfo->name );
-
-        if ( paDeviceNameVerbose == audioConfig.lastDevice )
+        try
         {
-            streamParams.device                    = paDi;
-            streamParams.suggestedLatency          = audioConfig.lowLatency ? paDeviceInfo->defaultLowOutputLatency :
-                                                                              paDeviceInfo->defaultHighOutputLatency;
-
-            if ( Pa_IsFormatSupported( nullptr, &streamParams, audioConfig.sampleRate ) == paFormatIsSupported )
+            paDeviceInfo = Pa_GetDeviceInfo( paDi );
+            if ( paDeviceInfo == nullptr )
             {
-                blog::core( "Selecting device #{} [{}]", paDi, paDeviceNameVerbose );
+                blog::error::core( "Pa_GetDeviceInfo failed #{}", paDi );
+                continue;
+            }
 
-                return paDi;
-            }
-            else
+            paApiInfo = Pa_GetHostApiInfo( paDeviceInfo->hostApi );
+            if ( paApiInfo == nullptr )
+                paApiInfo = &fallbackApiInfo;
+
+            const auto paDeviceNameVerbose = fmt::format( FMTX( "[{:>22}] {}" ), paApiInfo->name, paDeviceInfo->name );
+
+            if ( paDeviceNameVerbose == audioConfig.lastDevice )
             {
-                return -1;
+                streamParams.device                    = paDi;
+                streamParams.suggestedLatency          = audioConfig.lowLatency ? paDeviceInfo->defaultLowOutputLatency :
+                                                                                  paDeviceInfo->defaultHighOutputLatency;
+
+                if ( Pa_IsFormatSupported( nullptr, &streamParams, audioConfig.sampleRate ) == paFormatIsSupported )
+                {
+                    blog::core( "Selecting device #{} [{}]", paDi, paDeviceNameVerbose );
+
+                    return paDi;
+                }
+                else
+                {
+                    return -1;
+                }
             }
+        }
+        catch (...)
+        {
+            blog::error::core( "configuration device #{} threw exception", paDi );
         }
     }
     return -1;

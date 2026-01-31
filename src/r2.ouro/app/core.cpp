@@ -29,6 +29,7 @@
 
 #include "platform_folders.h"
 
+// ---------------------------------------------------------------------------------------------------------------------
 
 #if OURO_PLATFORM_WIN
 #include "win32/utils.h"
@@ -39,6 +40,24 @@
 #if OURO_FEATURE_NST24
 #include "effect/vst2/host.h"
 #endif 
+
+// ---------------------------------------------------------------------------------------------------------------------
+#if OURO_DEBUG
+// for hooking PureAudio debug output
+extern "C"
+{
+    typedef void (*PaUtilLogCallback) (const char* log);
+    extern void PaUtil_SetDebugPrintFunction( PaUtilLogCallback  cb );
+}
+void OuroPaUtilLogCallback( const char* log )
+{
+// this is optional, even in debug, as PA is quite verbose with the logging
+#ifdef OURO_DEBUG_PUREAUDIO
+    blog::audio( FMTX( "PA | {}" ), log );
+#endif // OURO_DEBUG_PUREAUDIO
+}
+#endif // OURO_DEBUG
+
 
 // ---------------------------------------------------------------------------------------------------------------------
 // manual exposure for the one-off init/term in Operations
@@ -217,6 +236,7 @@ std::string osxGetBundlePath()
 }
 #endif // OURO_PLATFORM_OSX
 
+
 // ---------------------------------------------------------------------------------------------------------------------
 int Core::Run()
 {
@@ -235,7 +255,19 @@ int Core::Run()
 
     // sup
     blog::core( FMTX( "Hello from OUROVEON {} [{}]" ), GetAppNameWithVersion(), getOuroveonPlatform() );
-    blog::debug::core( FMTX( "DEBUG BUILD" ) );
+
+    // report if there are any build tweaks
+    blog::debug::core( FMTX( "++ Debug Build" ) );
+#ifdef OURO_PGO_INSTRUMENT
+    blog::core( FMTX( "++ PGO Instrumentation Build" ) );
+#endif // OURO_PGO_INSTRUMENT
+#ifdef OURO_PGO_OPTIMIZE
+    blog::core( FMTX( "++ PGO Optimised Build" ) );
+#endif // OURO_PGO_OPTIMIZE
+
+#if OURO_DEBUG
+    PaUtil_SetDebugPrintFunction( &OuroPaUtilLogCallback );
+#endif // OURO_DEBUG
 
     // scripting
     blog::core( FMTX( "initialising {}" ), LUA_VERSION );
@@ -278,7 +310,7 @@ int Core::Run()
         APP_EVENT_REGISTER( AsyncTaskActivity );
         APP_EVENT_REGISTER( RiffTagAction );
         APP_EVENT_REGISTER( RequestNavigationToRiff );
-        APP_EVENT_REGISTER_SPECIFIC( RequestToShareRiff, 4096 );        // in case we kick off all-shared-riff exports on some of the goons with thousands of shrea
+        APP_EVENT_REGISTER_SPECIFIC( RequestToShareRiff, 4096 );        // in case we kick off all-shared-riff exports on some of the goons with thousands of shares
     }
     {
         base::EventBusClient m_eventBusClient( m_appEventBus );
