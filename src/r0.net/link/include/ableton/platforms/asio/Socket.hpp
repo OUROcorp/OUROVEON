@@ -34,7 +34,7 @@ namespace LINK_ASIO_NAMESPACE
 template <std::size_t MaxPacketSize>
 struct Socket
 {
-  Socket(::LINK_ASIO_NAMESPACE::io_service& io, ::LINK_ASIO_NAMESPACE::ip::udp protocol)
+  Socket(::LINK_ASIO_NAMESPACE::io_context& io, ::LINK_ASIO_NAMESPACE::ip::udp protocol)
     : mpImpl(std::make_shared<Impl>(io, protocol))
   {
   }
@@ -47,8 +47,9 @@ struct Socket
   {
   }
 
-  std::size_t send(
-    const uint8_t* const pData, const size_t numBytes, const discovery::UdpEndpoint& to)
+  std::size_t send(const uint8_t* const pData,
+                   const size_t numBytes,
+                   const discovery::UdpEndpoint& to)
   {
     assert(numBytes < MaxPacketSize);
     return mpImpl->mSocket.send_to(::LINK_ASIO_NAMESPACE::buffer(pData, numBytes), to);
@@ -60,17 +61,15 @@ struct Socket
     mpImpl->mHandler = std::move(handler);
     mpImpl->mSocket.async_receive_from(
       ::LINK_ASIO_NAMESPACE::buffer(mpImpl->mReceiveBuffer, MaxPacketSize),
-      mpImpl->mSenderEndpoint, util::makeAsyncSafe(mpImpl));
+      mpImpl->mSenderEndpoint,
+      util::makeAsyncSafe(mpImpl));
   }
 
-  discovery::UdpEndpoint endpoint() const
-  {
-    return mpImpl->mSocket.local_endpoint();
-  }
+  discovery::UdpEndpoint endpoint() const { return mpImpl->mSocket.local_endpoint(); }
 
   struct Impl
   {
-    Impl(::LINK_ASIO_NAMESPACE::io_service& io, ::LINK_ASIO_NAMESPACE::ip::udp protocol)
+    Impl(::LINK_ASIO_NAMESPACE::io_context& io, ::LINK_ASIO_NAMESPACE::ip::udp protocol)
       : mSocket(io, protocol)
     {
     }
@@ -84,8 +83,8 @@ struct Socket
       mSocket.close(ec);
     }
 
-    void operator()(
-      const ::LINK_ASIO_NAMESPACE::error_code& error, const std::size_t numBytes)
+    void operator()(const ::LINK_ASIO_NAMESPACE::error_code& error,
+                    const std::size_t numBytes)
     {
       if (!error && numBytes > 0 && numBytes <= MaxPacketSize)
       {

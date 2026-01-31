@@ -24,7 +24,6 @@
 #include <ableton/platforms/asio/AsioTimer.hpp>
 #include <ableton/platforms/asio/Socket.hpp>
 #include <ableton/platforms/esp32/LockFreeCallbackDispatcher.hpp>
-#include <driver/gptimer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -40,6 +39,10 @@ class Context
 {
   class ServiceRunner
   {
+    // This task used to exclusively poll ASIO with `poll_one()`, with an
+    // interval of 100 microseconds. Since ASIO uses `select()` internally to
+    // implement `poll_one()`, we might as well use an event based approach and
+    // save some CPU cycles by using `io_service::run()` instead.
     static void run(void* userParams)
     {
       auto runner = static_cast<ServiceRunner*>(userParams);
@@ -47,22 +50,11 @@ class Context
       {
         try
         {
-          ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-          runner->mpService->poll_one();
+          runner->mpService->run();
         }
         catch (...)
         {
         }
-      }
-    }
-
-    static void IRAM_ATTR timerIsr(void* userParam)
-    {
-      static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-      vTaskNotifyGiveFromISR(*((TaskHandle_t*)userParam), &xHigherPriorityTaskWoken);
-      if (xHigherPriorityTaskWoken)
-      {
-        portYIELD_FROM_ISR();
       }
     }
 
@@ -71,26 +63,16 @@ class Context
       : mpService(new ::asio::io_service())
       , mpWork(new ::asio::io_service::work(*mpService))
     {
-      xTaskCreatePinnedToCore(run, "link", 8192, this, 2 | portPRIVILEGE_BIT,
-        &mTaskHandle, LINK_ESP_TASK_CORE_ID);
-
-      const esp_timer_create_args_t timerArgs = {
-        .callback = &timerIsr,
-        .arg = (void*)&mTaskHandle,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "link",
-        .skip_unhandled_events = true,
-      };
-
-      ESP_ERROR_CHECK(esp_timer_create(&timerArgs, &mTimer));
-      ESP_ERROR_CHECK(esp_timer_start_periodic(mTimer, 100));
+      xTaskCreatePinnedToCore(run,
+                              "link",
+                              8192,
+                              this,
+                              2 | portPRIVILEGE_BIT,
+                              &mTaskHandle,
+                              LINK_ESP_TASK_CORE_ID);
     }
 
-    ~ServiceRunner()
-    {
-      esp_timer_delete(mTimer);
-      vTaskDelete(mTaskHandle);
-    }
+    ~ServiceRunner() { vTaskDelete(mTaskHandle); }
 
     template <typename Handler>
     void async(Handler handler)
@@ -98,14 +80,10 @@ class Context
       mpService->post(std::move(handler));
     }
 
-    ::asio::io_service& service() const
-    {
-      return *mpService;
-    }
+    ::asio::io_service& service() const { return *mpService; }
 
   private:
     TaskHandle_t mTaskHandle;
-    esp_timer_handle_t mTimer;
     std::unique_ptr<::asio::io_service> mpService;
     std::unique_ptr<::asio::io_service::work> mpWork;
   };
@@ -138,9 +116,7 @@ public:
   {
   }
 
-  void stop()
-  {
-  }
+  void stop() {}
 
   template <std::size_t BufferSize>
   Socket<BufferSize> openUnicastSocket(const ::asio::ip::address& addr)
@@ -212,20 +188,11 @@ public:
     return socket;
   }
 
-  std::vector<::asio::ip::address> scanNetworkInterfaces()
-  {
-    return mScanIpIfAddrs();
-  }
+  std::vector<::asio::ip::address> scanNetworkInterfaces() { return mScanIpIfAddrs(); }
 
-  Timer makeTimer() const
-  {
-    return {serviceRunner().service()};
-  }
+  Timer makeTimer() const { return {serviceRunner().service()}; }
 
-  Log& log()
-  {
-    return mLog;
-  }
+  Log& log() { return mLog; }
 
   template <typename Handler>
   void async(Handler handler)
@@ -243,9 +210,7 @@ private:
     {
     };
 
-    void operator()(const Exception&)
-    {
-    }
+    void operator()(const Exception&) {}
   };
 
   static ServiceRunner& serviceRunner()

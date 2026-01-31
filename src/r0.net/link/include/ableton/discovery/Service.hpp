@@ -33,15 +33,19 @@ public:
   using ServicePeerGateways = PeerGateways<NodeState, GatewayFactory, IoContext>;
 
   Service(NodeState state, GatewayFactory factory, util::Injected<IoContext> io)
-    : mGateways(
+    : mEnabled(false)
+    , mGateways(
         std::chrono::seconds(5), std::move(state), std::move(factory), std::move(io))
   {
   }
 
   void enable(const bool bEnable)
   {
+    mEnabled = bEnable;
     mGateways.enable(bEnable);
   }
+
+  bool isEnabled() const { return mEnabled; }
 
   // Asynchronously operate on the current set of peer gateways. The
   // handler will be invoked in the service's io context.
@@ -51,10 +55,7 @@ public:
     mGateways.withGateways(std::move(handler));
   }
 
-  void updateNodeState(const NodeState& state)
-  {
-    mGateways.updateNodeState(state);
-  }
+  void updateNodeState(const NodeState& state) { mGateways.updateNodeState(state); }
 
   // Repair the gateway with the given address if possible. Its
   // sockets may have been closed, for example, and the gateway needs
@@ -65,6 +66,7 @@ public:
   }
 
 private:
+  bool mEnabled;
   ServicePeerGateways mGateways;
 };
 

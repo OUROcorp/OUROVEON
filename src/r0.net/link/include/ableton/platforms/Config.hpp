@@ -47,6 +47,7 @@
 #elif defined(ESP_PLATFORM)
 #include <ableton/platforms/esp32/Clock.hpp>
 #include <ableton/platforms/esp32/Context.hpp>
+#include <ableton/platforms/esp32/Log.hpp>
 #include <ableton/platforms/esp32/Random.hpp>
 #include <ableton/platforms/esp32/ScanIpIfAddrs.hpp>
 #endif
@@ -64,28 +65,30 @@ using Random = platforms::stl::Random;
 #if defined(LINK_WINDOWS_SETTHREADDESCRIPTION)
 using IoContext =
   platforms::LINK_ASIO_NAMESPACE::Context<platforms::windows::ScanIpIfAddrs,
-    util::NullLog,
-    platforms::windows::ThreadFactory>;
+                                          util::NullLog,
+                                          platforms::windows::ThreadFactory>;
 #else
 using IoContext =
   platforms::LINK_ASIO_NAMESPACE::Context<platforms::windows::ScanIpIfAddrs,
-    util::NullLog>;
+                                          util::NullLog>;
 #endif
 
 #elif defined(LINK_PLATFORM_MACOSX)
 using Clock = platforms::darwin::Clock;
-using IoContext = platforms::LINK_ASIO_NAMESPACE::Context<platforms::posix::ScanIpIfAddrs,
-  util::NullLog,
-  platforms::darwin::ThreadFactory>;
+using IoContext =
+  platforms::LINK_ASIO_NAMESPACE::Context<platforms::posix::ScanIpIfAddrs,
+                                          util::NullLog,
+                                          platforms::darwin::ThreadFactory>;
 using Random = platforms::stl::Random;
 
 #elif defined(LINK_PLATFORM_LINUX)
 using Clock = platforms::linux_::ClockMonotonicRaw;
 using Random = platforms::stl::Random;
 #ifdef __linux__
-using IoContext = platforms::LINK_ASIO_NAMESPACE::Context<platforms::posix::ScanIpIfAddrs,
-  util::NullLog,
-  platforms::linux_::ThreadFactory>;
+using IoContext =
+  platforms::LINK_ASIO_NAMESPACE::Context<platforms::posix::ScanIpIfAddrs,
+                                          util::NullLog,
+                                          platforms::linux_::ThreadFactory>;
 #else
 using IoContext =
   platforms::LINK_ASIO_NAMESPACE::Context<platforms::posix::ScanIpIfAddrs, util::NullLog>;

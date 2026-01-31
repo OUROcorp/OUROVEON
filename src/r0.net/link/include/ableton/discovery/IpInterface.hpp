@@ -29,15 +29,13 @@ namespace discovery
 
 inline UdpEndpoint multicastEndpointV4()
 {
-  return {IpAddressV4::from_string("224.76.78.75"), 20808};
+  return {makeAddress("224.76.78.75"), 20808};
 }
 
 inline UdpEndpoint multicastEndpointV6(uint64_t scopeId)
 {
   // This is a non-permanently-assigned link-local multicast address (RFC4291)
-  return {
-    ::LINK_ASIO_NAMESPACE::ip::make_address("ff12::8080%" + std::to_string(scopeId)),
-    20808};
+  return {makeAddress("ff12::8080%" + std::to_string(scopeId)), 20808};
 }
 
 // Type tags for dispatching between unicast and multicast packets
@@ -72,8 +70,9 @@ public:
   }
 
 
-  std::size_t send(
-    const uint8_t* const pData, const size_t numBytes, const UdpEndpoint& to)
+  std::size_t send(const uint8_t* const pData,
+                   const size_t numBytes,
+                   const UdpEndpoint& to)
   {
     return mSendSocket.send(pData, numBytes, to);
   }
@@ -91,10 +90,7 @@ public:
       SocketReceiver<MulticastTag, Handler>(std::move(handler)));
   }
 
-  UdpEndpoint endpoint() const
-  {
-    return mSendSocket.endpoint();
-  }
+  UdpEndpoint endpoint() const { return mSendSocket.endpoint(); }
 
 private:
   template <typename Tag, typename Handler>
@@ -120,8 +116,8 @@ private:
 };
 
 template <std::size_t MaxPacketSize, typename IoContext>
-IpInterface<IoContext, MaxPacketSize> makeIpInterface(
-  util::Injected<IoContext> io, const IpAddress& addr)
+IpInterface<IoContext, MaxPacketSize> makeIpInterface(util::Injected<IoContext> io,
+                                                      const IpAddress& addr)
 {
   return {std::move(io), addr};
 }
