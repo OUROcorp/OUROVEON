@@ -25,8 +25,6 @@ ModuleRefInclude["portaudio"] = function()
     filter "system:Windows"
     defines 
     {
-        "PA_ENABLE_MSVC_DEBUG_OUTPUT",
-        
         "PA_USE_ASIO",
         "PA_USE_DS",
         "PA_USE_WASAPI",
