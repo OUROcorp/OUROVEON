@@ -16,6 +16,18 @@
 
 struct PFFFT_Setup;
 
+// this can be enabled and a BP stuck in the function to catch whenever a stem fails to decode - I used this to rapidly
+// test decoding at scale by enqueuing an entire jam and letting it blitz through stem loading in a Release build
+// (as debug builds are very slow to decode). Any decode issues will be captured via the hasFailed() function later
+#ifdef OURO_STRESS_DEBUG_STEM_DECODE
+#pragma optimize("", off)
+inline void _release_mode_breakpoint()
+{
+    int breakpointMe = 1;
+}
+#pragma optimize("", on)
+#endif // OURO_STRESS_DEBUG_STEM_DECODE
+
 namespace config { namespace endlesss { struct rAPI; } }
 
 namespace endlesss {
@@ -70,14 +82,6 @@ struct StemAnalysisData
     ouro_nodiscard inline float   getHighFreqF(  const int64_t sampleIndex ) const { return base::LUT::u8_to_float[ getHighFreqU8(sampleIndex) ]; }
 
 
-    // all the per-sample 0..1 analysis data is stored quantised as mostly we're using it for visualisation
-    // or debugging / alignment, full precision generally isn't required. `psa` being per-sample average, just for a name for it
-    //
-    std::vector< uint8_t >          m_psaWave;         // rms-follower of original waveform
-    std::vector< uint8_t >          m_psaBeat;         // peak-follower on detected beats, giving smooth decay off each
-    std::vector< uint8_t >          m_psaLowFreq;      // smoothed extraction of lower-band frequencies
-    std::vector< uint8_t >          m_psaHighFreq;     // smoothed extraction of higher-band frequencies
-
 
     inline void setBeatAtSample( const int64_t sampleIndex )
     {
@@ -94,6 +98,15 @@ struct StemAnalysisData
 
         return (m_beatBitfield[bitBlock] >> bitBit) != 0;
     }
+
+
+    // all the per-sample 0..1 analysis data is stored quantised as mostly we're using it for visualisation
+    // or debugging / alignment, full precision generally isn't required. `psa` being per-sample average, just for a name for it
+    //
+    std::vector< uint8_t >          m_psaWave;         // rms-follower of original waveform
+    std::vector< uint8_t >          m_psaBeat;         // peak-follower on detected beats, giving smooth decay off each
+    std::vector< uint8_t >          m_psaLowFreq;      // smoothed extraction of lower-band frequencies
+    std::vector< uint8_t >          m_psaHighFreq;     // smoothed extraction of higher-band frequencies
 
     // one bit per sample bitfield, talk to it via functions above
     std::vector< uint64_t >         m_beatBitfield;
@@ -187,11 +200,20 @@ struct Stem
 
     ouro_nodiscard constexpr bool hasFailed() const
     {
-        return ( m_state == State::Failed_Http           ||
+        const bool failure = ( 
+                 m_state == State::Failed_Http           ||
                  m_state == State::Failed_DataUnderflow  ||
                  m_state == State::Failed_DataOverflow   ||
                  m_state == State::Failed_Decompression  ||
                  m_state == State::Failed_CacheDirectory );
+
+// see top of file for explanation
+#ifdef OURO_STRESS_DEBUG_STEM_DECODE
+        if ( failure )
+            _release_mode_breakpoint();
+#endif // OURO_STRESS_DEBUG_STEM_DECODE
+
+        return failure;
     }
 
     // NB this value will be 0 in all cases where we have no useful http status to cache, only useful if the state is Failed_Http
