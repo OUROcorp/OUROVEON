@@ -107,6 +107,7 @@ void PaUtil_DebugPrint( const char *format, ... )
         va_start(ap, format);
         VSNPRINTF(strdump, sizeof(strdump), format, ap);
         strdump[sizeof(strdump)-1] = 0;
+        strdump[strlen(strdump)-1] = 0;
         userCB(strdump);
         va_end(ap);
     }
