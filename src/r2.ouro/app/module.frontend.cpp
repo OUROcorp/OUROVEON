@@ -525,7 +525,9 @@ bool Frontend::appTick()
             updateAndSaveFrontendConfig();
     }
 
-    glfwMakeContextCurrent( m_glfwWindow );
+    GLFWwindow* currentContext = glfwGetCurrentContext();
+    if ( currentContext != m_glfwWindow )
+        glfwMakeContextCurrent( m_glfwWindow );
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
