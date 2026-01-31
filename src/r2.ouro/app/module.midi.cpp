@@ -100,10 +100,10 @@ struct Midi::State : public Midi::InputControl
             {
                 const uint8_t u7OnKey = message->at( 1 ) & 0x7F;
                 const uint8_t u7OnVel = message->at( 2 ) & 0x7F;
+                const ::events::MidiEvent midiMsg( { timeStamp, midi::Message::Type::NoteOn, u7OnKey, u7OnVel }, activeDeviceUID );
 
                 blog::core( "midi::NoteOn  [ {:>18} ] (#{}) [{}] [{}]", activeDeviceUID, channelNumber, u7OnKey, u7OnVel );
 
-                const ::events::MidiEvent midiMsg( { timeStamp, midi::Message::Type::NoteOn, u7OnKey, u7OnVel }, activeDeviceUID );
                 state->m_eventBusClient.Send< ::events::MidiEvent >( midiMsg );
             }
             else
@@ -111,20 +111,22 @@ struct Midi::State : public Midi::InputControl
             {
                 const uint8_t u7OffKey = message->at( 1 ) & 0x7F;
                 const uint8_t u7OffVel = message->at( 2 ) & 0x7F;
+                const ::events::MidiEvent midiMsg( { timeStamp, midi::Message::Type::NoteOff, u7OffKey, u7OffVel }, activeDeviceUID );
 
                 blog::core( "midi::NoteOff [ {:>18} ] (#{}) [{}] [{}]", activeDeviceUID, channelNumber, u7OffKey, u7OffVel );
 
-                const ::events::MidiEvent midiMsg( { timeStamp, midi::Message::Type::NoteOff, u7OffKey, u7OffVel }, activeDeviceUID );
                 state->m_eventBusClient.Send< ::events::MidiEvent >( midiMsg );
             }
             else
-            if ( channelMessage == midi::ControlChange::u7Type )
+            if ( state->m_enableCCMessages && channelMessage == midi::ControlChange::u7Type )
             {
                 const uint8_t u7CtrlNum = message->at( 1 ) & 0x7F;
                 const uint8_t u7CtrlVal = message->at( 2 ) & 0x7F;
+                const ::events::MidiEvent midiMsg( { timeStamp, midi::Message::Type::ControlChange, u7CtrlNum, u7CtrlVal }, activeDeviceUID );
 
-                //blog::core( "midi::ControlChange(#{}) [{}] = {}", channelNumber, u7CtrlNum, u7CtrlVal );
-                //state->m_midiMessageQueue.emplace( timeStamp, midi::Message::Type::ControlChange, u7CtrlNum, u7CtrlVal );
+                blog::core( "midi::ControlChange(#{}) [{}] = {} (f:{})", channelNumber, u7CtrlNum, u7CtrlVal, ((midi::ControlChange)midiMsg.m_msg).valueF01() );
+
+                state->m_eventBusClient.Send< ::events::MidiEvent >( midiMsg );
             }
         }
     }
@@ -186,6 +188,8 @@ struct Midi::State : public Midi::InputControl
     std::vector< MidiDevice >       m_inputPortNames;
     uint32_t                        m_inputPortOpenedIndex = 0;
 
+    bool                            m_enableCCMessages = false;
+
     base::EventBusClient            m_eventBusClient;
 };
 
@@ -198,6 +202,13 @@ void Midi::State::imgui( app::CoreGUI& coreGUI )
         {
             Restart();
         }
+        ImGui::RightAlignSameLine( 160.0f );
+        ImGui::SetNextItemWidth( 160.0f );
+        if ( ImGui::Checkbox( " Enable CC ", &m_enableCCMessages ) )
+        {
+            blog::core( "midi::ControlChange stream {}", m_enableCCMessages ? "enabled" : "disabled" );
+        }
+
         if ( m_inputPortCount > 0 )
         {
             ImGui::Spacing();
