@@ -345,9 +345,10 @@ void Stem::fetch( const api::NetConfiguration& ncfg, const fs::path& cachePath )
         flacStreamChannels.fill( nullptr );
         std::size_t flacStreamChannelsWriteIndex = 0;
 
-        // inner loop decoder buffer, stack local
-        static constexpr std::size_t flacDecoderBufferSize = 1024 * 4;
-        int32_t decodeBuffer[flacDecoderBufferSize];
+        // inner loop decoder buffer
+        static constexpr std::size_t flacDecoderBufferSize = FLAC_MAX_BLOCK_SIZE;
+        int32_t* decodeBuffer = mem::alloc16< int32_t >( flacWorkingMemorySize );
+
 
         // data to pull from METADATA block
         uint64_t flacSampleRate = 0;
@@ -359,7 +360,11 @@ void Stem::fetch( const api::NetConfiguration& ncfg, const fs::path& cachePath )
         double conversionNegativeRecp = 1.0;
         std::size_t conversionBitShift = 0;
 
-        while( rawAudioLen > 0 )
+        uint64_t flacFrameIndex = 0;
+        bool flacFrameBeingProcessed = false;
+
+        while( rawAudioLen > 0 ||
+             ( rawAudioLen == 0 && flacFrameBeingProcessed ) )
         {
             // hit an error? bail out
             if ( m_state != State::WorkEnqueued )
@@ -376,27 +381,35 @@ void Stem::fetch( const api::NetConfiguration& ncfg, const fs::path& cachePath )
             const fx_flac_state_t flacState = fx_flac_process( flac, rawAudio, &rawAudioInBytes, decodeBuffer, &flacAudioOutSamples );
 
 #ifdef OURO_FLAC_VERBOSE
-            // dump out every state; only do this with a single thread running, obviously
-            static constexpr std::array< std::string_view, 8 > flacStateStrings = {
-                "FLAC_ERR             ( -1 )",
-                "FLAC_INIT            (  0 )",
-                "FLAC_IN_METADATA     (  1 )",
-                "FLAC_END_OF_METADATA (  2 )",
-                "FLAC_SEARCH_FRAME    (  3 )",
-                "FLAC_IN_FRAME        (  4 )",
-                "FLAC_DECODED_FRAME   (  5 )",
-                "FLAC_END_OF_FRAME    (  6 )",
-            };
-            blog::stem( FMTX( "FLAC | state = {} | remaining : {:06} - {:06} | buffer to process : {:06} | write_index : {:06}" ),
-                flacStateStrings[(std::size_t)flacState + 1],
-                rawAudioLen,
-                rawAudioInBytes,
-                flacAudioOutSamples,
-                flacStreamChannelsWriteIndex );
+            {
+                // dump out every state; only do this with a single thread running, obviously
+                static constexpr std::array< std::string_view, 8 > flacStateStrings = {
+                    "FLAC_ERR             ( -1 )",
+                    "FLAC_INIT            (  0 )",
+                    "FLAC_IN_METADATA     (  1 )",
+                    "FLAC_END_OF_METADATA (  2 )",
+                    "FLAC_SEARCH_FRAME    (  3 )",
+                    "FLAC_IN_FRAME        (  4 )",
+                    "FLAC_DECODED_FRAME   (  5 )",
+                    "FLAC_END_OF_FRAME    (  6 )",
+                };
+                blog::stem( FMTX( "[s:{}..] FLAC-DEC Frame {} | state = {} | remaining : {:06} - {:06} | buffer to process : {:06} | write_index : {:06}" ),
+                    stemCouchSnip,
+                    flacFrameIndex,
+                    flacStateStrings[(std::size_t)flacState + 1],
+                    rawAudioLen,
+                    rawAudioInBytes,
+                    flacAudioOutSamples,
+                    flacStreamChannelsWriteIndex );
+            }
 #endif // OURO_FLAC_VERBOSE
 
             switch ( flacState )
             {
+                default:
+                    blog::error::stem( FMTX( "[s:{}..] flac decode - unknown flac state [{}]" ), stemCouchSnip, (std::size_t)flacState );
+                    break;
+
                 case FLAC_ERR:
                 {
                     blog::error::stem( FMTX( "[s:{}..] flac decode error - unknown error from fx_flac_process" ), stemCouchSnip );
@@ -451,6 +464,7 @@ void Stem::fetch( const api::NetConfiguration& ncfg, const fs::path& cachePath )
 
                 case FLAC_IN_FRAME:
                 case FLAC_DECODED_FRAME:
+                    flacFrameBeingProcessed = true;
                 case FLAC_END_OF_FRAME:
                 {
                     // check we got a metadata block first, otherwise we have nowhere to decode into
@@ -475,8 +489,14 @@ void Stem::fetch( const api::NetConfiguration& ncfg, const fs::path& cachePath )
                         flacStreamChannels[0][flacStreamChannelsWriteIndex] = sampleDoubleL;
                         flacStreamChannels[1][flacStreamChannelsWriteIndex] = sampleDoubleR;
                     }
-                    break;
                 }
+                break;
+            }
+
+            if ( flacState == FLAC_END_OF_FRAME )
+            {
+                flacFrameIndex++;
+                flacFrameBeingProcessed = false;
             }
 
             rawAudio += rawAudioInBytes;
@@ -485,6 +505,7 @@ void Stem::fetch( const api::NetConfiguration& ncfg, const fs::path& cachePath )
         }
 
         // toss the flac decoder instance now we're done with it
+        mem::free16( decodeBuffer );
         mem::free16( flacWorkingMemory );
 
         // check if we emerged from the loop with errors
@@ -537,6 +558,7 @@ void Stem::fetch( const api::NetConfiguration& ncfg, const fs::path& cachePath )
             }
         }
         m_sampleCount = static_cast<int32_t>( flacSampleCount );
+
 
         // similar to OGG, handle sample rate conversion as we create the final data buffers
         if ( flacSampleRate != m_sampleRate )
@@ -890,6 +912,13 @@ bool Stem::analyse( const Processing& processing, StemAnalysisData& result ) con
         {
             base::instr::ScopedEvent wte( "Stem::analyse::signal", scBuf, base::instr::PresetColour::Indigo );
 
+            int64_t preheatIndexSkip = -1;
+
+            if ( cycle == 0 && m_sampleCount > (int32_t)m_sampleRate )
+            {
+                preheatIndexSkip = m_sampleCount - (int32_t)m_sampleRate;
+            }
+
             std::size_t fftBandIndex = 0;
             for ( int64_t sI = 0, fftI = 0; sI < m_sampleCount; sI++, fftI++ )
             {
@@ -904,6 +933,10 @@ bool Stem::analyse( const Processing& processing, StemAnalysisData& result ) con
                     if ( fftBandIndex == fftTimeSlices )
                         fftBandIndex = fftTimeSlices - 1;
                 }
+
+                
+                if ( preheatIndexSkip > 0 && sI < preheatIndexSkip )
+                    continue;
 
                 // don't imagine max() here is terribly scientific
                 const float signalInput     = std::max( m_channel[0][sI], m_channel[1][sI] );
