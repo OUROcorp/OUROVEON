@@ -66,10 +66,10 @@ int32_t OuroApp::getSampleRate() const
 //
 int OuroApp::EntrypointGUI()
 {
-    static constexpr std::array< const char*, 4 > cSampleRateLabels { "44100", "48000", "88200", "96000" };
-    static constexpr std::array< uint32_t,    4 > cSampleRateValues {  44100 ,  48000 ,  88200 ,  96000  };
-    static constexpr std::array< const char*, 7 > cBufferSizeLabels {  "Auto",    "32",    "64",   "256",   "512",  "1024",  "2048" };
-    static constexpr std::array< uint32_t,    7 > cBufferSizeValues {      0 ,     32 ,     64 ,    256 ,    512 ,   1024 ,   2048  };
+    static constexpr std::array< const char*, 5 > cSampleRateLabels { "44100", "48000", "88200", "96000", "192000" };
+    static constexpr std::array< uint32_t,    5 > cSampleRateValues {  44100 ,  48000 ,  88200 ,  96000 ,  192000  };
+    static constexpr std::array< const char*, 8 > cBufferSizeLabels {  "Auto",    "32",    "64",   "256",   "512",  "1024",  "2048",  "4096" };
+    static constexpr std::array< uint32_t,    8 > cBufferSizeValues {      0 ,     32 ,     64 ,    256 ,    512 ,   1024 ,   2048 ,   4096  };
     static constexpr std::array< const char*, 6 > cVibeRenderLabels {   "512",  "1024",  "2048",  "4096" };
     static constexpr std::array< uint32_t,    6 > cVibeRenderValues {    512 ,   1024 ,   2048 ,   4096  };
 
