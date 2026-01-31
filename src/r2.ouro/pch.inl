@@ -7,8 +7,8 @@
 //  
 //
 
-#define OURO_FRAMEWORK_VERSION    "1.2.0"
-#define OURO_FRAMEWORK_CREDIT     "ishani.org 2025"
+#define OURO_FRAMEWORK_VERSION    "1.2.2"
+#define OURO_FRAMEWORK_CREDIT     "ishani.org 2026"
 #define OURO_FRAMEWORK_URL        "https://ishani.org/shelf/ouroveon/"
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -172,20 +172,18 @@ namespace detail {
         {
             const auto& vargs = fmt::make_format_args( args... );
 
-            constexpr std::string_view midsep = " | ";
-            constexpr std::string_view suffix = "\n";
+            static constexpr std::string_view midsep = " | ";
+            static constexpr std::string_view suffix = "\n";
 
 #if OURO_ENABLE_COLOURED_LOGGING
-            constexpr auto foreground1 = fmt::detail::make_foreground_color<char>( fmt::detail::color_type( _fg1 ) );
-            constexpr auto foreground2 = fmt::detail::make_foreground_color<char>( fmt::detail::color_type( _fg2 ) );
+            static constexpr auto foreground1 = fmt::detail::make_foreground_color<char>( fmt::detail::color_type( _fg1 ) );
+            static constexpr auto foreground2 = fmt::detail::make_foreground_color<char>( fmt::detail::color_type( _fg2 ) );
 #endif // OURO_ENABLE_COLOURED_LOGGING
-
-            // size of buffer used by ansi_color_escape
-            constexpr size_t size_of_text_style = 7u + 3u * 4u + 1u;
 
             // format the input into our first buffer
             static thread_local fmt::basic_memory_buffer<char> formatBuffer;
             {
+                formatBuffer.try_reserve( 2048 );
                 formatBuffer.clear();
                 fmt::detail::vformat_to( formatBuffer, fmt::detail::to_string_view( format_str ), vargs, {} );
             }
@@ -193,15 +191,7 @@ namespace detail {
             // build the final output by appending components
             static thread_local fmt::basic_memory_buffer<char> outputBuffer;
             {
-                const auto size = formatBuffer.size() + 1;
-
-                const size_t bufferSize =
-                    (size_of_text_style * 5) +
-                    prefix.size() +
-                    size +
-                    suffix.size();
-
-                outputBuffer.try_reserve( bufferSize );
+                outputBuffer.try_reserve( 2048 );
                 outputBuffer.clear();
 
 #if OURO_ENABLE_COLOURED_LOGGING
@@ -229,7 +219,7 @@ namespace detail {
                 outputBuffer.push_back( '\0' );
             }
 
-            std::cout << outputBuffer.data();
+            std::fwrite( outputBuffer.data(), 1, outputBuffer.size(), stdout );
         }
     }
 }
@@ -256,6 +246,7 @@ ADD_BLOG( api,      0xa2e65a,    " API" )
 ADD_BLOG( database, 0x55e52d,    "  DB" )
 ADD_BLOG( plug,     0x78dce8,    "PLUG" )
 ADD_BLOG( discord,  0x885de6,    "DISC" )
+ADD_BLOG( audio,    0xe65d88,    " AUD" )
 
 ADD_BLOG( mix,      0x5bcce6,    " MIX" )
 ADD_BLOG( jam,      0x5c7ee6,    " JAM" )
