@@ -169,7 +169,7 @@ workspace ("ouroveon_" .. _ACTION)
 
         platforms       { "universal" }
         architecture      "universal"
-        systemversion     "10.15"
+        systemversion     "11.0"
         
         defines
         {
@@ -196,6 +196,7 @@ workspace ("ouroveon_" .. _ACTION)
         LLVM_LTO = "YES_THIN",
         DEAD_CODE_STRIPPING = "YES",
         CLANG_ENABLE_OBJC_WEAK = "YES",
+        STRING_CATALOG_GENERATE_SYMBOLS = "YES", -- as per Xcode 26.2 whining
 
         -- just to silence the upgrade-project notice
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = "YES",
