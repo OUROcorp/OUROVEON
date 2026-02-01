@@ -52,6 +52,7 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 #include "pa_debugprint.h"
 
