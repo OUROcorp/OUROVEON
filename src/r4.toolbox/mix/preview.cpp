@@ -46,6 +46,7 @@ struct Preview::AbletonLinkControl
     AbletonLinkControl()
         : m_link( 120.0 )
     {
+        m_link.enableStartStopSync( true );
     }
     ~AbletonLinkControl()
     {
@@ -455,14 +456,14 @@ void Preview::update(
     // bar transition mode, more to think about
     else
     {
-        const auto shiftTransisionSample = m_lockTransitionOnBeat * ( m_riffCurrent->m_timingDetails.m_lengthInSamplesPerBar / m_riffCurrent->m_timingDetails.m_quarterBeats );
+        auto shiftTransisionSample = m_lockTransitionOnBeat * ( m_riffCurrent->m_timingDetails.m_lengthInSamplesPerBar / m_riffCurrent->m_timingDetails.m_quarterBeats );
 
         auto segmentLengthInSamples = (int64_t)m_riffCurrent->m_timingDetails.m_lengthInSamplesPerBar;
         switch ( m_lockTransitionBarCount )
         {
-            case TransitionBarCount::Eighth:    segmentLengthInSamples /= 8; break;
-            case TransitionBarCount::Quarter:   segmentLengthInSamples /= 4; break;
-            case TransitionBarCount::Half:      segmentLengthInSamples /= 2; break;
+            case TransitionBarCount::Eighth:    segmentLengthInSamples /= 8; shiftTransisionSample /= 8; break;
+            case TransitionBarCount::Quarter:   segmentLengthInSamples /= 4; shiftTransisionSample /= 4; break;
+            case TransitionBarCount::Half:      segmentLengthInSamples /= 2; shiftTransisionSample /= 2; break;
             default:
             case TransitionBarCount::Once:
             case TransitionBarCount::Many:      // loop for m_lockTransitionBarMultiple
@@ -655,6 +656,11 @@ void Preview::imgui()
 
     if ( ImGui::Begin( previewView.generateTitle().c_str(), nullptr, ImGuiWindowFlags_Ouro_MultiDimensional) )
     {
+        // stupid hack to allow toggling page on this panel as it lacks a tab bar by default and on mac the pageup 
+        // approach is spotty, thanks steve jobs
+        if ( ImGui::IsWindowHovered( ImGuiHoveredFlags_RootWindow ) && ImGui::IsMouseDoubleClicked( 1 ) )
+            previewView.switchToNextPage();
+
         previewView.checkForImGuiTabSwitch();
 
         if ( previewView == PreviewView::Default )
@@ -786,39 +792,48 @@ void Preview::imguiDefault()
             ImGui::NextColumn();
             ImGui::Spacing();
             ImGui::Spacing();
-            ImGui::Spacing();
             ImGui::TextUnformatted( "Offset" );
 
             ImGui::NextColumn();
             ImGui::Spacing();
-            ImGui::Spacing();
-            ImGui::Spacing();
             {
                 if ( currentRiffIsValid )
                 {
+                    float barRateScale = 1.0f;
                     float barBlockArea = ImGui::GetContentRegionAvail().x;
                     switch ( m_lockTransitionBarCount )
                     {
-                        case TransitionBarCount::Eighth:    barBlockArea *= 0.125f; break;
-                        case TransitionBarCount::Quarter:   barBlockArea *= 0.25f;  break;
-                        case TransitionBarCount::Half:      barBlockArea *= 0.5f;   break;
+                        case TransitionBarCount::Eighth:    barRateScale = 8.0f; break;
+                        case TransitionBarCount::Quarter:   barRateScale = 4.0f; break;
+                        case TransitionBarCount::Half:      barRateScale = 2.0f; break;
                         default:
                             break;
                     }
-                    const float barButtonWidth  = 10.0f;
+
+                    const float barButtonWidth  = 12.0f;
                     const float barBlockWidth   = ( barBlockArea - barButtonWidth ) / (float)currentRiff->m_timingDetails.m_quarterBeats;
                     const float barSpacerWidth  = ( barBlockWidth - barButtonWidth );
 
                     const auto barButtonDim = ImVec2( barButtonWidth, ImGui::GetTextLineHeight() );
+
+                    // an index for the transition point, scaled by the bar count so we can blink the buttons below
+                    // in sync with when the mixer will transition; helps visualise the right point to hop track while you listen
+                    int32_t subBarBlink = (int32_t)std::floor( m_playbackProgression.m_playbackQuarterPercentage * barRateScale );
+                    subBarBlink %= currentRiff->m_timingDetails.m_quarterBeats;
 
                     for ( auto qb = 0; qb < currentRiff->m_timingDetails.m_quarterBeats; qb++ )
                     {
                         if ( qb > 0 )
                             ImGui::SameLine( 0, barSpacerWidth );
 
+                        // add a little bump to the button to indicate the current transition preview point
+                        ImVec2 localButtomDim = barButtonDim;
+                        if ( subBarBlink == qb )
+                            localButtomDim.y += 7.0f;
+
                         ImGui::PushID( qb );
                         ImGui::Scoped::ToggleButtonLit lit( m_lockTransitionOnBeat == qb, riffTransitColourU32 );
-                        if ( ImGui::Button( "##btr", barButtonDim ) )
+                        if ( ImGui::Button( "##btr", localButtomDim ) )
                         {
                             m_lockTransitionOnBeat = qb;
                         }
@@ -833,7 +848,7 @@ void Preview::imguiDefault()
                 }
                 else
                 {
-                    ImGui::Dummy( ImVec2( 20.0f, ImGui::GetTextLineHeight() ) );
+                    ImGui::Dummy( ImVec2( 20.0f, ImGui::GetTextLineHeight() + 7.0f ) );
                 }
 
                 ImGui::NextColumn();
@@ -846,7 +861,7 @@ void Preview::imguiDefault()
                 ImGui::NextColumn();
                 ImGui::Spacing();
                 ImGui::Spacing();
-                ImGui::Spacing();
+                ImGui::ItemSize( ImVec2( 1.0f, 2.0f ) );
 
                 const auto repeatSliderWidth = ImGui::GetContentRegionAvail().x * 0.3f;
                 const auto buttonBarAreaWidth = ImGui::GetContentRegionAvail().x - repeatSliderWidth;
