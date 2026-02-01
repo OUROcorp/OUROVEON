@@ -12,6 +12,7 @@
 #include "app/module.midi.h"
 #include "app/module.frontend.fonts.h"
 #include "app/imgui.ext.h"
+#include "config/midi.h"
 
 #include "RtMidi.h"
 
@@ -24,8 +25,9 @@ struct Midi::State : public Midi::InputControl
     using MidiMessageQueue = mcc::ReaderWriterQueue< app::midi::Message >;
 
 
-    State( base::EventBusClient&& eventBusClient )
-        : m_eventBusClient( std::move(eventBusClient) )
+    State( const config::Midi& configMidi, base::EventBusClient&& eventBusClient )
+        : m_configMidi( configMidi )
+        , m_eventBusClient( std::move(eventBusClient) )
     {
         Init();
     }
@@ -57,6 +59,8 @@ struct Midi::State : public Midi::InputControl
     void Term()
     {
         blog::core( "shutting down RtMidi ..." );
+
+        m_recentMidiMessages.clear();
 
         try
         {
@@ -100,9 +104,21 @@ struct Midi::State : public Midi::InputControl
             {
                 const uint8_t u7OnKey = message->at( 1 ) & 0x7F;
                 const uint8_t u7OnVel = message->at( 2 ) & 0x7F;
-                const ::events::MidiEvent midiMsg( { timeStamp, midi::Message::Type::NoteOn, u7OnKey, u7OnVel }, activeDeviceUID );
+                
+                midi::Message::Type msgType = midi::Message::Type::NoteOn;
+                // a common translation (apparently); NoteOn with a 0 velocity can be considered a NoteOff
+                if ( state->m_configMidi.zeroVelocityNoteOnToNoteOff && u7OnVel == 0 )
+                {
+                    msgType = midi::Message::Type::NoteOff;
+                }
 
-                blog::core( "midi::NoteOn  [ {:>18} ] (#{}) [{}] [{}]", activeDeviceUID, channelNumber, u7OnKey, u7OnVel );
+                const ::events::MidiEvent midiMsg( state->m_configMidi, { timeStamp, msgType, u7OnKey, u7OnVel }, activeDeviceUID );
+
+                state->addRecentMessage( fmt::format( "{:14} |  ch:(#{})  key:{:<3}  vel:{:<4}",
+                    midi::Message::typeAsString(msgType),
+                    channelNumber,
+                    u7OnKey,
+                    u7OnVel ) );
 
                 state->m_eventBusClient.Send< ::events::MidiEvent >( midiMsg );
             }
@@ -111,24 +127,45 @@ struct Midi::State : public Midi::InputControl
             {
                 const uint8_t u7OffKey = message->at( 1 ) & 0x7F;
                 const uint8_t u7OffVel = message->at( 2 ) & 0x7F;
-                const ::events::MidiEvent midiMsg( { timeStamp, midi::Message::Type::NoteOff, u7OffKey, u7OffVel }, activeDeviceUID );
+                const midi::Message::Type msgType = midi::Message::Type::NoteOff;
 
-                blog::core( "midi::NoteOff [ {:>18} ] (#{}) [{}] [{}]", activeDeviceUID, channelNumber, u7OffKey, u7OffVel );
+                const ::events::MidiEvent midiMsg( state->m_configMidi, { timeStamp, msgType, u7OffKey, u7OffVel }, activeDeviceUID );
+
+                state->addRecentMessage( fmt::format( "{:14} |  ch:(#{})  key:{:<3}  vel:{:<4}",
+                    midi::Message::typeAsString(msgType),
+                    channelNumber,
+                    u7OffKey,
+                    u7OffVel ) );
 
                 state->m_eventBusClient.Send< ::events::MidiEvent >( midiMsg );
             }
             else
-            if ( state->m_enableCCMessages && channelMessage == midi::ControlChange::u7Type )
+            if ( state->m_configMidi.enableCCMessages &&
+                 channelMessage == midi::ControlChange::u7Type )
             {
                 const uint8_t u7CtrlNum = message->at( 1 ) & 0x7F;
                 const uint8_t u7CtrlVal = message->at( 2 ) & 0x7F;
-                const ::events::MidiEvent midiMsg( { timeStamp, midi::Message::Type::ControlChange, u7CtrlNum, u7CtrlVal }, activeDeviceUID );
+                const midi::Message::Type msgType = midi::Message::Type::ControlChange;
 
-                blog::core( "midi::ControlChange(#{}) [{}] = {} (f:{})", channelNumber, u7CtrlNum, u7CtrlVal, ((midi::ControlChange)midiMsg.m_msg).valueF01() );
+                const ::events::MidiEvent midiMsg( state->m_configMidi, { timeStamp, msgType, u7CtrlNum, u7CtrlVal }, activeDeviceUID );
+
+                state->addRecentMessage( fmt::format( "{:14} |  ch:(#{})  ctrl:{:3}  =  {} (f:{})",
+                    midi::Message::typeAsString(msgType),
+                    channelNumber,
+                    u7CtrlNum,
+                    u7CtrlVal,
+                    ((midi::ControlChange)midiMsg.m_msg).valueF01() ) );
 
                 state->m_eventBusClient.Send< ::events::MidiEvent >( midiMsg );
             }
         }
+    }
+
+    void addRecentMessage( std::string_view newMessage )
+    {
+        m_recentMidiMessages.emplace_front( newMessage );
+        while ( m_recentMidiMessages.size() > 10 )
+            m_recentMidiMessages.pop_back();
     }
 
     bool openInputPort( const uint32_t index ) override
@@ -182,13 +219,14 @@ struct Midi::State : public Midi::InputControl
 
     void imgui( app::CoreGUI& coreGUI );
 
+    config::Midi                    m_configMidi;
 
     std::unique_ptr< RtMidiIn >     m_midiIn;
     uint32_t                        m_inputPortCount = 0;
     std::vector< MidiDevice >       m_inputPortNames;
     uint32_t                        m_inputPortOpenedIndex = 0;
 
-    bool                            m_enableCCMessages = false;
+    std::deque< std::string >       m_recentMidiMessages;
 
     base::EventBusClient            m_eventBusClient;
 };
@@ -198,38 +236,81 @@ void Midi::State::imgui( app::CoreGUI& coreGUI )
 {
     if ( ImGui::Begin( ICON_FA_PLUG " MIDI Devices###midimodule_main" ) )
     {
+        const bool anyPortsOpen = m_midiIn->isPortOpen();
+
+        std::string comboPreviewString = "";
+        if ( anyPortsOpen )
+            comboPreviewString = m_inputPortNames[m_inputPortOpenedIndex].getName();
+
+        // refreshing the devices just involves shutting down rtMidi and restarting it
         if ( ImGui::Button( " Refresh " ) )
         {
             Restart();
         }
-        ImGui::RightAlignSameLine( 160.0f );
-        ImGui::SetNextItemWidth( 160.0f );
-        if ( ImGui::Checkbox( " Enable CC ", &m_enableCCMessages ) )
-        {
-            blog::core( "midi::ControlChange stream {}", m_enableCCMessages ? "enabled" : "disabled" );
-        }
 
+        // if we have any input ports at all...
         if ( m_inputPortCount > 0 )
         {
-            ImGui::Spacing();
-            ImGui::TextUnformatted( "Known Devices :" );
-            ImGui::Scoped::AutoIndent autoIndent( 12.0f );
+            ImGui::SameLine( 0.0f, 12.0f );
 
-            const bool anyPortsOpen = m_midiIn->isPortOpen();
-
-            for ( uint32_t portIndex = 0U; portIndex < m_inputPortCount; portIndex++ )
+            // a list of MIDI devices known to us; choosing one switches the current (single) open port
+            ImGui::SetNextItemWidth( 325.0f );
+            if ( ImGui::BeginCombo( "##ActiveDeviceSelector", comboPreviewString.c_str(), 0 ) )
             {
-                const bool isActive = anyPortsOpen && (portIndex == m_inputPortOpenedIndex);
-                if ( ImGui::RadioButton( m_inputPortNames[portIndex].getName().c_str(), isActive ) )
+                for ( uint32_t portIndex = 0U; portIndex < m_inputPortCount; portIndex++ )
                 {
-                    closeInputPort();
-                    const bool wasOpened = openInputPort( portIndex );
+                    const bool isActive = anyPortsOpen && (portIndex == m_inputPortOpenedIndex);
 
-                    blog::core( "activating midi device [{}] = {}",
-                        m_inputPortNames[portIndex].getName(),
-                        wasOpened ? "successful" : "failed" );
+                    if ( ImGui::Selectable( m_inputPortNames[portIndex].getName().c_str(), isActive ) )
+                    {
+                        closeInputPort();
+                        const bool wasOpened = openInputPort( portIndex );
+
+                        blog::core( "activating midi device [{}] = {}",
+                            m_inputPortNames[portIndex].getName(),
+                            wasOpened ? "successful" : "failed" );
+                    }
+                    if ( isActive )
+                        ImGui::SetItemDefaultFocus();
                 }
+                ImGui::EndCombo();
             }
+        }
+        ImGui::SeparatorBreak();
+        {
+            bool settingsChanged = false;
+            settingsChanged |= ImGui::Checkbox( "Translate [NoteOn + Velocity=0] => [NoteOff]", &m_configMidi.zeroVelocityNoteOnToNoteOff );
+            {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted( "Key Binding Mode :" );
+                ImGui::SameLine( 0, 12.0f );
+                ImGui::SetNextItemWidth( 260.0f );
+                settingsChanged |= config::MidiBindMode::ImGuiCombo( "###bind_mode", m_configMidi.midiBindMode );
+            }
+            if ( m_configMidi.midiBindMode == config::MidiBindMode::WaitForSpecificVelocity )
+            {
+                ImGui::SameLine( 0, 12.0f );
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted( " Velocity = " );
+                ImGui::SameLine( 0, 2.0f );
+                ImGui::SetNextItemWidth( 130.0f );
+                settingsChanged |= ImGui::InputInt( "###specific_vel", &m_configMidi.midiBindSpecificVelocity, 1, ImGuiInputTextFlags_None );
+                m_configMidi.midiBindSpecificVelocity = std::clamp( m_configMidi.midiBindSpecificVelocity, 0, 127 );
+            }
+            // bake out settings if we changed anything
+            if ( settingsChanged )
+            {
+                std::ignore = config::save( coreGUI, m_configMidi );
+            }
+        }
+        ImGui::SeparatorBreak();
+        {
+            ImGui::Scoped::Enabled ed( anyPortsOpen );
+            ImGui::TextUnformatted( "Recent MIDI Messages" );
+
+            ImGui::Scoped::AutoIndent autoIndent( 12.0f );
+            for ( const std::string& msg : m_recentMidiMessages )
+                ImGui::TextColoredUnformatted( colour::shades::lime.neutral(), msg.data() );
         }
     }
     ImGui::End();
@@ -252,7 +333,10 @@ absl::Status Midi::create( app::Core* appCore )
     if ( !baseStatus.ok() )
         return baseStatus;
 
-    m_state = std::make_unique<State>( appCore->getEventBusClient() );
+    config::Midi configMidi = {};
+    std::ignore = config::load( *appCore, configMidi );
+
+    m_state = std::make_unique<State>( configMidi, appCore->getEventBusClient() );
     return absl::OkStatus();
 }
 

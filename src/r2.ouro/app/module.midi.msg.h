@@ -27,6 +27,7 @@ struct Message
     };
 
     static constexpr uint8_t typeAsByte( const Type t );
+    static constexpr const char* typeAsString( const Type t );
 
     Message() = default;
     Message( const double time, const Type ty, const uint8_t data0, const uint8_t data1 )
@@ -161,12 +162,25 @@ constexpr uint8_t Message::typeAsByte( const Type t )
     switch ( t )
     {
     case Type::NoteOn:        return NoteOn::u7Type;
-    case Type::NoteOff:       return NoteOn::u7Type;
-    case Type::ControlChange: return NoteOn::u7Type;
+    case Type::NoteOff:       return NoteOff::u7Type;
+    case Type::ControlChange: return ControlChange::u7Type;
     default:
         break;
     }
     return 0;
+}
+
+constexpr const char* Message::typeAsString( const Type t )
+{
+    switch ( t )
+    {
+    case Type::NoteOn:        return "NoteOn";
+    case Type::NoteOff:       return "NoteOff";
+    case Type::ControlChange: return "ControlChange";
+    default:
+        break;
+    }
+    return "[unknown]";
 }
 
 

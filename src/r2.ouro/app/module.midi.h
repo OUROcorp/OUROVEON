@@ -88,14 +88,18 @@ using MidiModule = std::unique_ptr<module::Midi>;
 
 Gen_StringWrapperFormatter( app::module::MidiDeviceID )
 
+namespace config { struct Midi; }
+
 // ---------------------------------------------------------------------------------------------------------------------
 CREATE_EVENT_BEGIN( MidiEvent )
 
-    MidiEvent( const app::midi::Message& msg, const app::module::MidiDeviceID& deviceUID )
-        : m_msg( msg )
+    MidiEvent( const config::Midi& midiConfig, const app::midi::Message& msg, const app::module::MidiDeviceID& deviceUID )
+        : m_midiConfig( midiConfig )
+        , m_msg( msg )
         , m_deviceUID( deviceUID )
     {}
 
+    const config::Midi&         m_midiConfig;   // immutable path back to the current midi config block
     app::midi::Message          m_msg;
     app::module::MidiDeviceID   m_deviceUID;
 

@@ -13,6 +13,8 @@
 #include "base/eventbus.h"
 #include "base/text.h"
 
+#include "config/midi.h"
+
 #include "app/imgui.ext.h"
 #include "app/module.frontend.fonts.h"
 #include "app/module.midi.h"
@@ -55,16 +57,19 @@ struct LaunchRiff
 struct LaunchMidi
 {
     int32_t                                     m_midiKey = -1;
+    uint8_t                                     m_midiVel = 0;
 
     void clear()
     {
         m_midiKey = -1;
+        m_midiVel = 0;
     }
 
     template<class Archive>
     inline void serialize( Archive& archive )
     {
         archive( CEREAL_NVP( m_midiKey )
+               , CEREAL_OPTIONAL_NVP( m_midiVel )
         );
     }
 };
@@ -326,13 +331,27 @@ void RiffLauncher::State::event_MidiEvent( const events::MidiEvent* eventData )
     {
         const app::midi::NoteOn* midiNoteOn = static_cast<const app::midi::NoteOn*>(&eventData->m_msg);
 
+        // are we waiting to learn an input to assign to a pad?
         if ( m_learnMidiCurrentTarget != -1 )
         {
             pad::LaunchMidi& launchMidi = m_grid.m_gridMidi.at(m_learnMidiCurrentTarget);
 
-            launchMidi.m_midiKey = midiNoteOn->key();
+            // are we waiting for a specific input velocity?
+            if ( eventData->m_midiConfig.midiBindMode == config::MidiBindMode::WaitForSpecificVelocity )
+            {
+                // no match, abort this binding
+                if ( midiNoteOn->velocity() != eventData->m_midiConfig.midiBindSpecificVelocity )
+                    return;
+            }
 
-            blog::app( FMTX( "MIDI key {} assigned to pad {}" ), launchMidi.m_midiKey, m_learnMidiCurrentTarget );
+            // save both, even if we don't end up matching against velocity
+            launchMidi.m_midiKey = midiNoteOn->key();
+            launchMidi.m_midiVel = midiNoteOn->velocity();
+
+            blog::app( FMTX( "MIDI key {} @ velocity {} assigned to pad {}" ),
+                launchMidi.m_midiKey,
+                launchMidi.m_midiVel,
+                m_learnMidiCurrentTarget );
 
             m_grid.triggerHighlight(m_learnMidiCurrentTarget);
             m_learnMidiCurrentTarget = -1;
@@ -341,11 +360,28 @@ void RiffLauncher::State::event_MidiEvent( const events::MidiEvent* eventData )
         {
             for ( uint32_t idx = 0; idx < pad::Constants::PadCountTotal; idx ++ )
             {
-                pad::LaunchMidi& launchMidi = m_grid.m_gridMidi.at(idx);
-                if ( launchMidi.m_midiKey == midiNoteOn->key() )
+                const pad::LaunchMidi& launchMidi = m_grid.m_gridMidi.at(idx);
+
+                bool shouldTrigger = false;
+                // only care about the key matching?
+                if ( eventData->m_midiConfig.midiBindMode == config::MidiBindMode::InitialKey )
+                {
+                    shouldTrigger = launchMidi.m_midiKey == midiNoteOn->key();
+                }
+                else
+                {
+                    shouldTrigger = launchMidi.m_midiKey == midiNoteOn->key() &&
+                                    launchMidi.m_midiVel == midiNoteOn->velocity();
+                }
+
+                if ( shouldTrigger )
                 {
                     pad::LaunchRiff& launchRiff = m_grid.m_gridRiff.at( idx );
                     m_grid.triggerHighlight( idx );
+
+                    blog::app( FMTX( "MIDI key {} @ velocity {} matched to pad" ),
+                        launchMidi.m_midiKey,
+                        launchMidi.m_midiVel );
 
                     const bool padHasData = launchRiff.m_identity.hasData();
                     if ( padHasData )
