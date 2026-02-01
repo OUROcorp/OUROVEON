@@ -29,6 +29,7 @@ function SetDefaultBuildConfiguration()
         defines {
             "_CRT_DECLARE_NONSTDC_NAMES=1",
         }
+        vectorextensions ("AVX")
     filter {}
 
     filter "configurations:Debug"
@@ -57,9 +58,11 @@ function SetDefaultBuildConfiguration()
 
     filter { "configurations:Release", "options:pgo=instrument" }
         pgo "Instrument"
+        defines   { "OURO_PGO_INSTRUMENT" }
     filter {}
     filter { "configurations:Release", "options:pgo=optimise" }
         pgo "Optimize"
+        defines   { "OURO_PGO_OPTIMIZE" }
     filter {}
 
 end
